@@ -2,7 +2,108 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.io as pio
 
+# Set custom theme for all plotly figures
+pio.templates.default = "plotly_white"
+
+# Custom CSS to make the app look modern with Lato and IBM Plex Mono fonts
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+    
+    html, body, [class*="st-"] {
+        font-family: 'Lato', sans-serif;
+        font-weight: 400;
+    }
+    
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Lato', sans-serif;
+        font-weight: 700;
+    }
+    
+    .st-emotion-cache-16txtl3 h1, .st-emotion-cache-16txtl3 h2 {
+        color: #1e3a8a; /* Tailwind blue-900 */
+    }
+    
+    /* Tailwind-like shadow */
+    .streamlit-card {
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        background-color: #fff;
+        border: 1px solid #e5e7eb;
+    }
+    
+    /* Number styling */
+    .mono-nums {
+        font-family: 'IBM Plex Mono', monospace;
+        font-weight: 500;
+    }
+    
+    /* Button styling */
+    .stButton > button {
+        background-color: #2563eb; /* Tailwind blue-600 */
+        color: white;
+        border: none;
+        border-radius: 0.375rem;
+        padding: 0.5rem 1rem;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    
+    .stButton > button:hover {
+        background-color: #1d4ed8; /* Tailwind blue-700 */
+        transform: translateY(-1px);
+    }
+    
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background-color: #f8fafc; /* Tailwind slate-50 */
+    }
+    
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {
+        color: #334155; /* Tailwind slate-700 */
+    }
+    
+    /* Success/Info message styling */
+    .st-emotion-cache-16idsys p {
+        font-weight: 600;
+    }
+    
+    /* Make dataframes look better */
+    .dataframe {
+        border: none !important;
+    }
+    
+    .dataframe tbody tr:nth-of-type(even) {
+        background-color: #f1f5f9 !important; /* Tailwind slate-100 */
+    }
+    
+    .dataframe th {
+        background-color: #1e293b !important; /* Tailwind slate-800 */
+        color: white !important;
+        padding: 0.75rem 1rem !important;
+        border: none !important;
+    }
+    
+    .dataframe td {
+        padding: 0.75rem 1rem !important;
+        border-bottom: 1px solid #e2e8f0 !important; /* Tailwind slate-200 */
+        border-right: none !important;
+        border-left: none !important;
+    }
+    
+    /* Format numbers to use IBM Plex Mono */
+    .mono-nums, td:has(.mono-nums) {
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-feature-settings: "tnum" !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- Session State Management ---
 # Initialize session state
 for key, default in zip(['solar_kw', 'battery_kwh', 'inverter_kva', 'daily_usage_kwh', 'total_cost'], [8, 50, 5, 20, 0]):
     if key not in st.session_state:
@@ -85,6 +186,8 @@ def information_tab():
     ### Component Sizing Logic
     - **Battery Capacity:** Calculated based on your daily usage and desired backup duration.  
       Battery Size (kWh) = Daily Usage (kWh) × Backup Days ÷ DoD (0.8)
+                
+    - **Battery Sizing** Battery capacity is rounded up to the nearest 5 kWh increment
 
     - **Solar Panel Array Size:** Based on typical solar insolation in South Africa (5 kWh/day/kWp).  
       Solar Size (kWp) = Daily Usage (kWh) ÷ Peak Sun Hours (4.5–6)
@@ -93,8 +196,20 @@ def information_tab():
                 Inverters commonly come in sizes like 3.6, 5, 8, etc. kVA. TODO: Add more explanation
                 
     ### Financial Assumptions
-    - Costs are indicative averages for residential solar installations in South Africa.
-    - Financial analysis considers electricity inflation and alternative investment opportunities.
+    - Costs are indicative averages for residential solar installations in South Africa, as researched by GPT 4.5 Deep Research.
+    - Solar Panels: ZAR 12,000 per kWp
+    - Battery Storage: ZAR 5,000 per kWh
+    - Hybrid Inverter: ZAR 3,500 per kVA
+    - Installation & Misc.: ZAR 20,000
+    - **Electricity Cost:** ZAR 3.35 per kWh (Eskom rates for Ethekwini Municipality)
+    - **Annual Inflation:** 5% (This could be even higher in the future)
+    - **Opportunity Cost of Capital:** 5% (Your expected return on investment)
+    - **Grid Sell-back Rate:** 15% (No idea about this, need to check the NERSA documentation)
+                
+    ### What is left out?
+    - **Maintenance Costs:** Solar systems require minimal maintenance, but it's not zero.
+    - **Battery Degradation:** Batteries lose capacity over time, especially if not cycled regularly.
+    - **Timing of consumption:** This model assumes you consume all the solar power you generate, and does not account for variations in tariff by time-of-use or season.
 
     This tool provides an indicative analysis. Consult a professional installer for exact sizing.
     """)
@@ -107,7 +222,7 @@ def financial_model():
 
     electricity_cost = st.sidebar.number_input("Electricity Cost per kWh (R)", 1.0, 10.0, 3.35, 0.1)
     inflation_rate = st.sidebar.number_input("Annual Electricity Price Inflation (%)", 0.0, 20.0, 5.0, 0.5) / 100
-    opportunity_cost_rate = st.sidebar.number_input("Real Opportunity Cost of Capital (%)", 0.0, 10.0, 2.0, 0.1) / 100
+    opportunity_cost_rate = st.sidebar.number_input("Real Opportunity Cost of Capital (%)", 0.0, 10.0, 5.0, 0.1) / 100
     sell_to_grid = st.sidebar.checkbox("Allow Selling Excess to Grid?", False)
     sell_back_rate = st.sidebar.number_input("Grid Sell-back Rate (%)", 0.0, 100.0, 15.0, 5.0) / 100 if sell_to_grid else 0
 
