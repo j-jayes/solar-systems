@@ -4,100 +4,54 @@ import numpy as np
 import plotly.express as px
 
 # Initialize session state
-for key, default in zip(['solar_kw', 'battery_kwh', 'inverter_kva', 'daily_usage_kwh', 'total_cost'], [8, 50, 5, 20, 0]):
+for key, default in zip(['solar_kw', 'battery_kwh', 'inverter_kva', 'daily_usage_kwh', 'total_cost'], [8, 75, 10, 30, 0]):
     if key not in st.session_state:
         st.session_state[key] = default
 
-# --- System Specifications ---
+# --- System Specification & Cost Tab ---
 def system_specifications():
     st.header("Solar PV and Battery System Specifications")
 
-    st.sidebar.header("System Inputs")
+    st.sidebar.header("System Specifications")
 
-    daily_usage = st.sidebar.number_input(
-        "Daily Electricity Consumption (kWh)", 5, 100, 20, 5)
-
-    # Changed from days to hours - using a slider with hours
-    backup_hours = st.sidebar.slider("Backup Duration (Hours)", 0, 72, 12, 6)
+    st.session_state.daily_usage_kwh = st.sidebar.number_input(
+        "Daily Electricity Consumption (kWh)", 5, 100, st.session_state.daily_usage_kwh, 5)
+    backup_hours = st.sidebar.slider("Backup Duration (hours)", 12, 72, 48, step=12)
     
-    # Convert hours to fraction of a day for calculations
-    backup_days = backup_hours / 24
+    st.session_state.solar_kw = st.sidebar.number_input(
+        "Solar Panel Array Size (kWp)", 1, 20, st.session_state.solar_kw, step=1)
+    st.session_state.battery_kwh = st.sidebar.number_input(
+        "Battery Capacity (kWh)", 5, 150, st.session_state.battery_kwh, step=5)
+    st.session_state.inverter_kva = st.sidebar.number_input(
+        "Inverter Size (kVA)", 3, 15, st.session_state.inverter_kva, step=1)
     
-    battery_dod = 0.8  # Fixed at 80%
-
-    avg_sun_hours = st.sidebar.slider("Avg Peak Sun Hours/day", 4.5, 6.0, 5.0, 0.1)
-
-    # Calculations
-    battery_capacity = (daily_usage * backup_days) / battery_dod
-    solar_kw_required = daily_usage / avg_sun_hours
-    
-    # Round solar capacity up to nearest 0.5
-    solar_kw = np.ceil(solar_kw_required * 2) / 2
-    
-    # Calculate inverter size
-    inverter_size = np.ceil(daily_usage * 1.25 / 5)
-
-    # Update Session State
-    st.session_state.update({
-        "daily_usage_kwh": daily_usage,
-        "battery_kwh": np.ceil(battery_capacity / 5) * 5,  # nearest 5 kWh
-        "solar_kw": solar_kw,
-        "inverter_kva": inverter_size
-    })
-
-    st.markdown("### Recommended System")
     st.markdown(f"""
-    - **Daily Usage:** {daily_usage} kWh/day
-    - **Backup Duration:** {backup_hours} hours
-    - **Battery (80% DoD):** {st.session_state.battery_kwh:.1f} kWh
-    - **Solar Array:** {solar_kw} kWp (~{int(solar_kw * 2.5)} × 400W panels)
-    - **Inverter Size:** {inverter_size:.1f} kVA
+    ### System Requirements
+    - Daily Electricity Consumption: **{st.session_state.daily_usage_kwh} kWh**
+    - Backup Duration: **{backup_hours} hours**
+    - Solar Panel Array: **{st.session_state.solar_kw} kWp** (~{st.session_state.solar_kw * 2.5} × 400W panels)
+    - Battery Capacity: **{st.session_state.battery_kwh} kWh**
+    - Hybrid Inverter: **{st.session_state.inverter_kva} kVA**
     """)
 
-    # Cost Calculations
-    cost_panels = solar_kw * 12000  # ZAR per kWp
-    cost_battery = st.session_state.battery_kwh * 5000  # ZAR per kWh
-    cost_inverter = inverter_size * 3500  # ZAR per kVA
+    cost_panels = st.session_state.solar_kw * 10000
+    cost_battery = st.session_state.battery_kwh * 1333
+    cost_inverter = st.session_state.inverter_kva * 2000
     cost_installation = 20000
 
-    # Create DataFrame for costs
-    cost_df = pd.DataFrame({
-        "Component": ["Solar Panels", "Battery Storage", "Hybrid Inverter", "Installation & Misc."],
+    data = {
+        "Component": ["Solar Panels", "Battery", "Hybrid Inverter & Controller", "Installation & Misc."],
         "Cost (ZAR)": [cost_panels, cost_battery, cost_inverter, cost_installation]
-    })
+    }
+
+    df = pd.DataFrame(data)
 
     st.subheader("System Component Costs")
-    st.dataframe(cost_df.style.format({"Cost (ZAR)": "{:,.0f}"}))
+    st.dataframe(df.style.format({"Cost (ZAR)": "{:,.0f}"}))
 
-    total_cost = cost_df['Cost (ZAR)'].sum()
-    st.session_state.total_cost = total_cost
-    st.markdown(f"### **Total Estimated Cost: ZAR {total_cost:,.0f}**")
+    st.session_state.total_cost = df['Cost (ZAR)'].sum()
+    st.markdown(f"**Total Estimated Cost: R{st.session_state.total_cost:,.0f}**")
 
-# --- Information and Guidance Tab ---
-def information_tab():
-    st.header("Information and Assumptions")
-
-    st.markdown("""
-    ### System Assumptions
-    - **Battery Depth-of-Discharge (DoD):** 80%, common for Lithium-ion batteries (LiFePO4).
-    - **Average Peak Sun Hours:** Typical values in South Africa range from **4.5 to 6 hours/day**.
-
-    ### Component Sizing Logic
-    - **Battery Capacity:** Calculated based on your daily usage and desired backup duration.  
-      Battery Size (kWh) = Daily Usage (kWh) × Backup Days ÷ DoD (0.8)
-
-    - **Solar Panel Array Size:** Based on typical solar insolation in South Africa (5 kWh/day/kWp).  
-      Solar Size (kWp) = Daily Usage (kWh) ÷ Peak Sun Hours (4.5–6)
-
-    - **Inverter Size:** We divide the daily usage by 5 kWh to get a rough kVA estimate of the peak load, and multiply by 1.25 for a safety factor.
-                Inverters commonly come in sizes like 3.6, 5, 8, etc. kVA. TODO: Add more explanation
-                
-    ### Financial Assumptions
-    - Costs are indicative averages for residential solar installations in South Africa.
-    - Financial analysis considers electricity inflation and alternative investment opportunities.
-
-    This tool provides an indicative analysis. Consult a professional installer for exact sizing.
-    """)
 
 # --- Financial Model Tab ---
 def financial_model():
@@ -144,33 +98,16 @@ def financial_model():
 
     df_model = pd.DataFrame({
         "Year": np.arange(1, years + 1),
-        # "Cumulative Savings (R)": np.cumsum(annual_savings_list),
+        "Cumulative Savings (R)": np.cumsum(annual_savings_list),
         "Opportunity Cost (R)": [total_cost * ((1 + opportunity_cost_rate) ** y - 1) for y in range(years)],
         "Simple Net Savings (R)": cumulative_net,
         "Net vs Investment (R)": investment_net
     })
 
     # Plot main financial analysis
-    fig = px.line(df_model, x="Year", y=[
-        # "Cumulative Savings (R)", 
-        "Opportunity Cost (R)", "Simple Net Savings (R)"],
+    fig = px.line(df_model, x="Year", y=["Cumulative Savings (R)", "Opportunity Cost (R)", "Simple Net Savings (R)"],
                   title="Financial Model: Solar Payback Analysis",
                   labels={"value": "Rand", "Year": "Year"})
-    
-        # Add horizontal line at y=0
-    fig.add_shape(
-        type="line",
-        x0=0,
-        y0=0,
-        x1=years,
-        y1=0,
-        line=dict(
-            color="gray",
-            width=1.5,
-            dash="dash",
-        ),
-        layer="below"
-    )
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -214,38 +151,21 @@ def financial_model():
         xanchor="right",
         x=1
     ))
-
-    # Add horizontal line at y=0
-    fig2.add_shape(
-        type="line",
-        x0=0,
-        y0=0,
-        x1=years,
-        y1=0,
-        line=dict(
-            color="gray",
-            width=1.5,
-            dash="dash",
-        ),
-        layer="below"
-    )
     
     st.plotly_chart(fig2, use_container_width=True)
+
 
 # --- Streamlit App Main ---
 def main():
     st.title("Solar Energy Financial Modelling Tool")
 
-    tabs = st.tabs(["System Specifications", "Financial Analysis", "Info & Assumptions"])
+    tabs = st.tabs(["System Specifications", "Financial Analysis"])
 
     with tabs[0]:
         system_specifications()
 
     with tabs[1]:
         financial_model()
-
-    with tabs[2]:
-        information_tab()
 
 if __name__ == "__main__":
     main()
